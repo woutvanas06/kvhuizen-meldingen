@@ -1,14 +1,14 @@
-// KV Huizen – achtergrondtaken (draait elke 5 minuten via GitHub Actions, zie .github/workflows/kvhuizen.yml).
+// KV Huizen ‚Äì achtergrondtaken (draait elke 5 minuten via GitHub Actions, zie .github/workflows/kvhuizen.yml).
 //
 // 1. Clubwave volgen: pushmelding bij start, rust en eindstand van wedstrijden van Huizen
 //    (onderwerp "team-huizen-1" enz., gelijk aan ClubAccount.topic(for:) in de app).
 // 2. Live Activities bijwerken (stand op het vergrendelscherm) voor wie in de app "Volg live" aanzette.
 // 3. Bevestigingsmail (via Brevo) als iemand zich inschrijft voor een kantinedienst, met agenda-bijlage.
 //
-// Benodigde geheimen (GitHub → Settings → Secrets and variables → Actions):
+// Benodigde geheimen (GitHub ‚Üí Settings ‚Üí Secrets and variables ‚Üí Actions):
 //   FIREBASE_SERVICE_ACCOUNT  inhoud van het JSON-bestand van het Firebase-serviceaccount
 //   BREVO_API_KEY             API-sleutel van Brevo (mag leeg: dan geen mails)
-//   MAIL_FROM                 afzenderadres, bevestigd in Brevo (bijv. kantine@…)
+//   MAIL_FROM                 afzenderadres, bevestigd in Brevo (bijv. kantine@‚Ä¶)
 //   MAIL_FROM_NAME            (optioneel) naam van de afzender, standaard "KV Huizen"
 const {initializeApp, cert} = require('firebase-admin/app');
 const {getFirestore, FieldValue} = require('firebase-admin/firestore');
@@ -32,7 +32,7 @@ function clubName(team) {
   return name || team;
 }
 const isHuizen = team => clubName(team).toLowerCase() === 'huizen';
-const topic = team => 'team-' + String(team).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+const topic = team => 'team-' + String(team).toLowerCase().normalize('NFD').replace(/[ÃÄ-ÕØ]/g, '')
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 const amsterdam = (date, options) => new Intl.DateTimeFormat('nl-NL', {timeZone: 'Europe/Amsterdam', ...options}).format(date);
@@ -64,7 +64,7 @@ function readMatch(item) {
   };
 }
 
-const scoreLine = m => `${m.home} ${m.homeScore} – ${m.awayScore} ${m.away}`;
+const scoreLine = m => `${m.home} ${m.homeScore} ‚Äì ${m.awayScore} ${m.away}`;
 
 async function notifyTeams(match, title, body) {
   for (const team of new Set([match.home, match.away].filter(isHuizen))) {
@@ -119,11 +119,14 @@ async function clubwave() {
   const items = (await response.json())?.Data?.Wedstrijden ?? [];
   const collection = db.collection('clubwaveMatches');
   const seen = new Set();
+  let busy = false; // wedstrijd van Huizen bezig of binnen 15 minuten
 
   for (const item of items) {
     const match = readMatch(item);
     if (!isHuizen(match.home) && !isHuizen(match.away)) continue;
     seen.add(match.id);
+    const startsSoon = item.Datum && Math.abs(new Date(item.Datum) - Date.now()) < 15 * 60 * 1000;
+    if (match.live || (match.periodEnd && !match.finished) || (startsSoon && !match.finished)) busy = true;
     const reference = collection.doc(match.id);
     const previous = (await reference.get()).data() || {};
     const flags = {
@@ -133,7 +136,7 @@ async function clubwave() {
     };
 
     if (match.live && !flags.notifiedStart && match.homeScore + match.awayScore <= 2) {
-      await notifyTeams(match, team => `${team} is begonnen`, `${match.home} – ${match.away} is begonnen.`);
+      await notifyTeams(match, team => `${team} is begonnen`, `${match.home} ‚Äì ${match.away} is begonnen.`);
       flags.notifiedStart = true;
     }
     if (match.periodEnd && match.period < match.periods && !flags.notifiedHalf && !match.finished) {
@@ -168,6 +171,7 @@ async function clubwave() {
     await updateLiveActivities(match, true);
     await doc.ref.update({notified: true, activityEnded: true, updated: FieldValue.serverTimestamp()});
   }
+  return busy;
 }
 
 // ---------- 3: Bevestigingsmail kantinedienst ----------
@@ -190,13 +194,13 @@ const escapeHtml = text => String(text).replace(/[&<>"']/g, c => ({'&': '&amp;',
 
 async function sendMail(to, name, shift) {
   const day = amsterdam(new Date(shift.date + 'T12:00:00Z'), {weekday: 'long', day: 'numeric', month: 'long'});
-  const subject = `Bevestiging kantinedienst ${day}, ${shift.start}–${shift.end}`;
+  const subject = `Bevestiging kantinedienst ${day}, ${shift.start}‚Äì${shift.end}`;
   const text = `Hoi ${name},\n\nBedankt! Je staat ingeschreven voor de kantinedienst op ${day} van ${shift.start} tot ${shift.end}.\n\n` +
     `Je krijgt in de app een herinnering de avond ervoor en een uur vooraf. Kun je toch niet? Schrijf je dan uit in de app ` +
-    `(Club › Kantine), zodat iemand anders je plek kan nemen.\n\nSportieve groet,\nKV Huizen`;
+    `(Club ‚Ä∫ Kantine), zodat iemand anders je plek kan nemen.\n\nSportieve groet,\nKV Huizen`;
   const html = `<p>Hoi ${escapeHtml(name)},</p><p>Bedankt! Je staat ingeschreven voor de <strong>kantinedienst op ${escapeHtml(day)} ` +
     `van ${escapeHtml(shift.start)} tot ${escapeHtml(shift.end)}</strong>.</p><p>Je krijgt in de app een herinnering de avond ervoor ` +
-    `en een uur vooraf. Kun je toch niet? Schrijf je dan uit in de app (Club › Kantine), zodat iemand anders je plek kan nemen.</p>` +
+    `en een uur vooraf. Kun je toch niet? Schrijf je dan uit in de app (Club ‚Ä∫ Kantine), zodat iemand anders je plek kan nemen.</p>` +
     `<p>Sportieve groet,<br>KV Huizen</p>`;
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -248,11 +252,24 @@ async function canteenMail() {
 
 // ---------- Start ----------
 
+// GitHub start dit script hooguit eens per 5 minuten. Tijdens een wedstrijd van Huizen kijkt het
+// daarom binnen √©√©n run elke ~45 seconden opnieuw (ongeveer 4,5 minuut lang); anders √©√©n keer.
+const INTERVAL = 45 * 1000;
+const RUN_LIMIT = 4.5 * 60 * 1000;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 (async () => {
-  const tasks = [['Clubwave', clubwave], ['Kantinemail', canteenMail]];
+  const started = Date.now();
   let failed = false;
-  for (const [name, task] of tasks) {
-    try { await task(); } catch (error) { failed = true; log(`${name} mislukt:`, error.stack || error.message); }
+  for (let round = 1; ; round++) {
+    let busy = false;
+    try { busy = await clubwave(); } catch (error) { failed = true; log('Clubwave mislukt:', error.stack || error.message); }
+    try { await canteenMail(); } catch (error) { failed = true; log('Kantinemail mislukt:', error.stack || error.message); }
+    if (!busy || Date.now() - started + INTERVAL > RUN_LIMIT) {
+      log(`Klaar na ${round} ronde(s)${busy ? ' (wedstrijd bezig, volgende run gaat verder)' : ''}.`);
+      break;
+    }
+    await sleep(INTERVAL);
   }
   process.exit(failed ? 1 : 0);
 })();
