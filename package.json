@@ -1,0 +1,12 @@
+{
+  "name": "kvhuizen-worker",
+  "private": true,
+  "description": "Achtergrondtaken voor de KV Huizen-app: Clubwave-meldingen, Live Activities en bevestigingsmails.",
+  "main": "worker.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.1"
+  }
+}
